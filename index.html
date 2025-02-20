@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Shoulder Mobility Tracker with MediaPipe</title>
+  <title>Upper Body Mobility Tracker with MediaPipe</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -16,13 +16,11 @@
       width: 640px;
       margin: 0 auto;
     }
-    /* The video element is hidden as MediaPipe draws the annotated output on the canvas */
+    /* Hide the raw video; we use the canvas for display */
     #input_video {
       display: none;
     }
-    /* Canvas for drawing the video frame and overlays */
     #output_canvas {
-      position: relative;
       width: 640px;
       height: 480px;
       border: 2px solid #333;
@@ -30,33 +28,45 @@
       background: #000;
     }
     .angleDisplay {
-      font-size: 20px;
+      font-size: 18px;
       margin-top: 10px;
+    }
+    .sideTitle {
+      font-weight: bold;
+      margin-top: 20px;
     }
   </style>
 </head>
 <body>
-  <h1>Shoulder Mobility Tracker with MediaPipe</h1>
+  <h1>Upper Body Mobility Tracker with MediaPipe</h1>
   <div id="videoContainer">
     <video id="input_video" autoplay playsinline></video>
     <canvas id="output_canvas"></canvas>
   </div>
-  <div id="shoulderFlex" class="angleDisplay">Shoulder Flexion: --°</div>
-  <div id="shoulderAbd" class="angleDisplay">Shoulder Abduction: --°</div>
-  <div id="shoulderRot" class="angleDisplay">Shoulder Rotation (approx.): --</div>
+
+  <!-- Left Shoulder Angles -->
+  <div class="sideTitle">Left Shoulder</div>
+  <div id="leftFlex" class="angleDisplay">Flexion: --°</div>
+  <div id="leftAbd" class="angleDisplay">Abduction: --°</div>
+  <div id="leftRot" class="angleDisplay">Rotation (approx.): --°</div>
+
+  <!-- Right Shoulder Angles -->
+  <div class="sideTitle">Right Shoulder</div>
+  <div id="rightFlex" class="angleDisplay">Flexion: --°</div>
+  <div id="rightAbd" class="angleDisplay">Abduction: --°</div>
+  <div id="rightRot" class="angleDisplay">Rotation (approx.): --°</div>
 
   <!-- MediaPipe libraries -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
   <script>
-    // Get references to elements
+    // Get element references
     const videoElement = document.getElementById('input_video');
     const canvasElement = document.getElementById('output_canvas');
     const canvasCtx = canvasElement.getContext('2d');
 
-    // Utility: Calculate angle between three points (using normalized coordinates)
+    // Utility: Calculate angle between three points (points are objects with x and y)
     function calculateAngle(A, B, C) {
       const AB = { x: A.x - B.x, y: A.y - B.y };
       const CB = { x: C.x - B.x, y: C.y - B.y };
@@ -67,40 +77,77 @@
       return angleRad * (180 / Math.PI);
     }
 
-    // onResults callback: called each time MediaPipe returns a pose estimate
+    // Custom function to draw small red dots for each landmark (3px radius)
+    function drawLandmarks(landmarks) {
+      for (const landmark of landmarks) {
+        const x = landmark.x * canvasElement.width;
+        const y = landmark.y * canvasElement.height;
+        canvasCtx.beginPath();
+        canvasCtx.arc(x, y, 3, 0, 2 * Math.PI);
+        canvasCtx.fillStyle = 'red';
+        canvasCtx.fill();
+      }
+    }
+
+    // onResults callback: called each time a pose is estimated
     function onResults(results) {
-      // Draw the video frame first
+      // Draw the video frame on the canvas
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
       if (results.poseLandmarks) {
-        // Draw pose landmarks and connections
-        window.drawConnectors(canvasCtx, results.poseLandmarks, window.POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
-        window.drawLandmarks(canvasCtx, results.poseLandmarks, { color: '#FF0000', lineWidth: 2 });
+        // Draw landmarks with our custom function (smaller red dots)
+        drawLandmarks(results.poseLandmarks);
 
-        // MediaPipe Pose returns normalized landmarks (x and y in [0,1])
-        // Extract left shoulder (landmark 11), left elbow (13), left wrist (15)
+        // --- LEFT SIDE ---
         const leftShoulder = results.poseLandmarks[11];
-        const leftElbow = results.poseLandmarks[13];
-        const leftWrist = results.poseLandmarks[15];
+        const leftElbow    = results.poseLandmarks[13];
+        const leftWrist    = results.poseLandmarks[15];
 
         if (leftShoulder && leftElbow && leftWrist) {
-          // For angle calculations, create reference points relative to left shoulder.
-          // Using normalized coordinates, we add a small offset (0.1) to simulate 100 pixels.
-          const verticalRef = { x: leftShoulder.x, y: leftShoulder.y + 0.1 };
-          const horizontalRef = { x: leftShoulder.x + 0.1, y: leftShoulder.y };
+          // For flexion: use a horizontal reference to the right of the left shoulder.
+          // When arm is down, the shoulder-to-elbow vector is vertical so the angle with horizontal is 90°.
+          // We define flexion as 90° minus that angle.
+          const horizontalRefL = { x: leftShoulder.x + 0.1, y: leftShoulder.y };
+          let leftFlexAngle = calculateAngle(horizontalRefL, leftShoulder, leftElbow);
+          leftFlexAngle = 90 - leftFlexAngle; // 0 when arm is down; increases as arm raises forward
 
-          // Shoulder Flexion: Angle between vertical and the vector from shoulder to elbow.
-          const shoulderFlex = calculateAngle(verticalRef, leftShoulder, leftElbow);
-          // Shoulder Abduction: Angle between horizontal and the vector from shoulder to elbow.
-          const shoulderAbd = calculateAngle(horizontalRef, leftShoulder, leftElbow);
-          // Shoulder Rotation heuristic: difference in x between wrist and elbow.
-          const shoulderRot = (leftWrist.x - leftElbow.x) * 100; // scaled for readability
+          // For abduction: compute arctan(|elbow.x - shoulder.x| / |elbow.y - shoulder.y|).
+          const diffXLeft = Math.abs(leftElbow.x - leftShoulder.x);
+          const diffYLeft = Math.abs(leftElbow.y - leftShoulder.y);
+          let leftAbdAngle = Math.atan(diffXLeft / diffYLeft) * (180 / Math.PI);
 
-          document.getElementById('shoulderFlex').innerText = 'Shoulder Flexion: ' + shoulderFlex.toFixed(1) + '°';
-          document.getElementById('shoulderAbd').innerText = 'Shoulder Abduction: ' + shoulderAbd.toFixed(1) + '°';
-          document.getElementById('shoulderRot').innerText = 'Shoulder Rotation (approx.): ' + shoulderRot.toFixed(1);
+          // For rotation heuristic: difference in x between wrist and elbow (scaled).
+          const leftRotAngle = (leftWrist.x - leftElbow.x) * 100;
+
+          document.getElementById('leftFlex').innerText = 'Flexion: ' + leftFlexAngle.toFixed(1) + '°';
+          document.getElementById('leftAbd').innerText = 'Abduction: ' + leftAbdAngle.toFixed(1) + '°';
+          document.getElementById('leftRot').innerText = 'Rotation (approx.): ' + leftRotAngle.toFixed(1) + '°';
+        }
+
+        // --- RIGHT SIDE ---
+        const rightShoulder = results.poseLandmarks[12];
+        const rightElbow    = results.poseLandmarks[14];
+        const rightWrist    = results.poseLandmarks[16];
+
+        if (rightShoulder && rightElbow && rightWrist) {
+          // For right shoulder flexion: use a horizontal reference to the left of the right shoulder.
+          const horizontalRefR = { x: rightShoulder.x - 0.1, y: rightShoulder.y };
+          let rightFlexAngle = calculateAngle(horizontalRefR, rightShoulder, rightElbow);
+          rightFlexAngle = 90 - rightFlexAngle; // 0 when arm is down
+
+          // For right abduction: similar arctan formula.
+          const diffXRight = Math.abs(rightElbow.x - rightShoulder.x);
+          const diffYRight = Math.abs(rightElbow.y - rightShoulder.y);
+          let rightAbdAngle = Math.atan(diffXRight / diffYRight) * (180 / Math.PI);
+
+          // For rotation heuristic: difference in x between elbow and wrist (inverted for right side).
+          const rightRotAngle = (rightElbow.x - rightWrist.x) * 100;
+
+          document.getElementById('rightFlex').innerText = 'Flexion: ' + rightFlexAngle.toFixed(1) + '°';
+          document.getElementById('rightAbd').innerText = 'Abduction: ' + rightAbdAngle.toFixed(1) + '°';
+          document.getElementById('rightRot').innerText = 'Rotation (approx.): ' + rightRotAngle.toFixed(1) + '°';
         }
       }
       canvasCtx.restore();
@@ -120,7 +167,7 @@
     });
     pose.onResults(onResults);
 
-    // Set up the camera using MediaPipe Camera Utils
+    // Set up the camera using MediaPipe's Camera Utils
     const camera = new Camera(videoElement, {
       onFrame: async () => {
         await pose.send({ image: videoElement });
