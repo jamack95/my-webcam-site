@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Free Motion Capture Website</title>
+  <style>
+    /* Basic styling for the page */
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      margin: 0;
+      padding: 20px;
+      text-align: center;
+    }
+    h1 {
+      color: #333;
+    }
+    #videoElement {
+      width: 640px;
+      max-width: 100%;
+      border: 2px solid #333;
+      border-radius: 8px;
+      background: #000;
+    }
+    #startButton {
+      margin-top: 20px;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Free Motion Capture Website</h1>
+  <p>This site uses your laptop's webcam for motion capture.</p>
+  <video id="videoElement" autoplay playsinline></video>
+  <br>
+  <button id="startButton">Start Webcam</button>
+
+  <script>
+    const video = document.getElementById('videoElement');
+    const startButton = document.getElementById('startButton');
+
+    // Function to request webcam access and stream video to the element
+    async function startWebcam() {
+      try {
+        // Request video stream; audio is set to false for simplicity
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        video.srcObject = stream;
+      } catch (error) {
+        console.error('Error accessing webcam:', error);
+        alert('Unable to access the webcam. Please ensure you have granted permission and are using a compatible browser.');
+      }
+    }
+
+    // Attach event to start the webcam when button is clicked
+    startButton.addEventListener('click', startWebcam);
+  </script>
+</body>
+</html>
