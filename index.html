@@ -1,147 +1,134 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Shoulder Mobility Tracker</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shoulder Mobility Tracker with MediaPipe</title>
   <style>
-    body { 
-      font-family: Arial, sans-serif; 
-      background: #f4f4f4; 
-      text-align: center; 
-      padding: 20px; 
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      text-align: center;
+      padding: 20px;
     }
-    /* Container to hold video and overlay canvas */
     #videoContainer {
       position: relative;
-      display: inline-block;
+      width: 640px;
+      margin: 0 auto;
     }
-    #videoElement { 
-      width: 640px; 
-      max-width: 100%; 
-      border: 2px solid #333; 
-      border-radius: 8px; 
-      background: #000; 
+    /* The video element is hidden as MediaPipe draws the annotated output on the canvas */
+    #input_video {
+      display: none;
     }
-    #overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      pointer-events: none;
+    /* Canvas for drawing the video frame and overlays */
+    #output_canvas {
+      position: relative;
+      width: 640px;
+      height: 480px;
+      border: 2px solid #333;
+      border-radius: 8px;
+      background: #000;
     }
-    .angleDisplay { 
-      font-size: 20px; 
-      margin-top: 10px; 
+    .angleDisplay {
+      font-size: 20px;
+      margin-top: 10px;
     }
   </style>
 </head>
 <body>
-  <h1>Shoulder Mobility Tracker</h1>
+  <h1>Shoulder Mobility Tracker with MediaPipe</h1>
   <div id="videoContainer">
-    <video id="videoElement" autoplay playsinline></video>
-    <canvas id="overlay"></canvas>
+    <video id="input_video" autoplay playsinline></video>
+    <canvas id="output_canvas"></canvas>
   </div>
   <div id="shoulderFlex" class="angleDisplay">Shoulder Flexion: --°</div>
   <div id="shoulderAbd" class="angleDisplay">Shoulder Abduction: --°</div>
   <div id="shoulderRot" class="angleDisplay">Shoulder Rotation (approx.): --</div>
-  
-  <!-- Include TensorFlow.js and PoseNet libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
-  
-  <script>
-    const video = document.getElementById('videoElement');
-    const canvas = document.getElementById('overlay');
-    const ctx = canvas.getContext('2d');
 
-    // Start the webcam stream
-    async function startWebcam() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        video.srcObject = stream;
-      } catch (error) {
-        console.error('Error accessing webcam:', error);
-        alert('Unable to access the webcam.');
-      }
-    }
-    
-    // Set the canvas size to match the video once loaded
-    video.addEventListener('loadeddata', () => {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      loadAndDetectPose();
-    });
-    
-    // Utility function to calculate angle between three points (in degrees)
+  <!-- MediaPipe libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+  <script>
+    // Get references to elements
+    const videoElement = document.getElementById('input_video');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+
+    // Utility: Calculate angle between three points (using normalized coordinates)
     function calculateAngle(A, B, C) {
       const AB = { x: A.x - B.x, y: A.y - B.y };
       const CB = { x: C.x - B.x, y: C.y - B.y };
       const dot = AB.x * CB.x + AB.y * CB.y;
-      const magAB = Math.sqrt(AB.x ** 2 + AB.y ** 2);
-      const magCB = Math.sqrt(CB.x ** 2 + CB.y ** 2);
+      const magAB = Math.sqrt(AB.x * AB.x + AB.y * AB.y);
+      const magCB = Math.sqrt(CB.x * CB.x + CB.y * CB.y);
       const angleRad = Math.acos(dot / (magAB * magCB));
       return angleRad * (180 / Math.PI);
     }
-    
-    // Draw detected keypoints on the canvas for debugging
-    function drawKeypoints(keypoints, minConfidence = 0.4) {
-      keypoints.forEach(keypoint => {
-        if (keypoint.score >= minConfidence) {
-          const { x, y } = keypoint.position;
-          ctx.beginPath();
-          ctx.arc(x, y, 5, 0, 2 * Math.PI);
-          ctx.fillStyle = 'red';
-          ctx.fill();
-        }
-      });
-    }
-    
-    // Load the PoseNet model and start the pose detection loop
-    async function loadAndDetectPose() {
-      const net = await posenet.load();
-      async function detectPose() {
-        // Clear the overlay canvas
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Estimate the pose from the current video frame
-        const pose = await net.estimateSinglePose(video, { flipHorizontal: false });
-        
-        // Draw keypoints for visualization
-        drawKeypoints(pose.keypoints, 0.4);
-        
-        // Extract keypoints for left shoulder, elbow, and wrist
-        const leftShoulder = pose.keypoints.find(k => k.part === 'leftShoulder');
-        const leftElbow = pose.keypoints.find(k => k.part === 'leftElbow');
-        const leftWrist = pose.keypoints.find(k => k.part === 'leftWrist');
-        
-        if (leftShoulder && leftElbow && leftWrist &&
-            leftShoulder.score > 0.4 && leftElbow.score > 0.4 && leftWrist.score > 0.4) {
-          // Shoulder Flexion: Angle between vertical reference and the shoulder-to-elbow vector
-          const verticalRef = { x: leftShoulder.position.x, y: leftShoulder.position.y + 100 };
-          const shoulderFlex = calculateAngle(verticalRef, leftShoulder.position, leftElbow.position);
-          
-          // Shoulder Abduction: Angle between horizontal reference and the shoulder-to-elbow vector
-          const horizontalRef = { x: leftShoulder.position.x + 100, y: leftShoulder.position.y };
-          const shoulderAbd = calculateAngle(horizontalRef, leftShoulder.position, leftElbow.position);
-          
-          // Shoulder Rotation (approximation): Horizontal difference between wrist and elbow
-          const shoulderRot = leftWrist.position.x - leftElbow.position.x;
-          
+
+    // onResults callback: called each time MediaPipe returns a pose estimate
+    function onResults(results) {
+      // Draw the video frame first
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.poseLandmarks) {
+        // Draw pose landmarks and connections
+        window.drawConnectors(canvasCtx, results.poseLandmarks, window.POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
+        window.drawLandmarks(canvasCtx, results.poseLandmarks, { color: '#FF0000', lineWidth: 2 });
+
+        // MediaPipe Pose returns normalized landmarks (x and y in [0,1])
+        // Extract left shoulder (landmark 11), left elbow (13), left wrist (15)
+        const leftShoulder = results.poseLandmarks[11];
+        const leftElbow = results.poseLandmarks[13];
+        const leftWrist = results.poseLandmarks[15];
+
+        if (leftShoulder && leftElbow && leftWrist) {
+          // For angle calculations, create reference points relative to left shoulder.
+          // Using normalized coordinates, we add a small offset (0.1) to simulate 100 pixels.
+          const verticalRef = { x: leftShoulder.x, y: leftShoulder.y + 0.1 };
+          const horizontalRef = { x: leftShoulder.x + 0.1, y: leftShoulder.y };
+
+          // Shoulder Flexion: Angle between vertical and the vector from shoulder to elbow.
+          const shoulderFlex = calculateAngle(verticalRef, leftShoulder, leftElbow);
+          // Shoulder Abduction: Angle between horizontal and the vector from shoulder to elbow.
+          const shoulderAbd = calculateAngle(horizontalRef, leftShoulder, leftElbow);
+          // Shoulder Rotation heuristic: difference in x between wrist and elbow.
+          const shoulderRot = (leftWrist.x - leftElbow.x) * 100; // scaled for readability
+
           document.getElementById('shoulderFlex').innerText = 'Shoulder Flexion: ' + shoulderFlex.toFixed(1) + '°';
           document.getElementById('shoulderAbd').innerText = 'Shoulder Abduction: ' + shoulderAbd.toFixed(1) + '°';
           document.getElementById('shoulderRot').innerText = 'Shoulder Rotation (approx.): ' + shoulderRot.toFixed(1);
-        } else {
-          document.getElementById('shoulderFlex').innerText = 'Detecting...';
-          document.getElementById('shoulderAbd').innerText = 'Detecting...';
-          document.getElementById('shoulderRot').innerText = 'Detecting...';
         }
-        requestAnimationFrame(detectPose);
       }
-      detectPose();
+      canvasCtx.restore();
     }
-    
-    // Start the webcam when the page loads
-    startWebcam();
+
+    // Set up MediaPipe Pose
+    const pose = new Pose({
+      locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+      }
+    });
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    pose.onResults(onResults);
+
+    // Set up the camera using MediaPipe Camera Utils
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await pose.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480
+    });
+    camera.start();
   </script>
 </body>
 </html>
