@@ -77,16 +77,17 @@
       return angleRad * (180 / Math.PI);
     }
 
-    // Custom function to draw small red dots for each landmark (3px radius)
+    // Custom function to draw small red dots for each landmark, filtering out face landmarks (indexes 0-10)
     function drawLandmarks(landmarks) {
-      for (const landmark of landmarks) {
+      landmarks.forEach((landmark, index) => {
+        if (index < 11) return; // Skip face landmarks (indexes 0-10)
         const x = landmark.x * canvasElement.width;
         const y = landmark.y * canvasElement.height;
         canvasCtx.beginPath();
         canvasCtx.arc(x, y, 3, 0, 2 * Math.PI);
         canvasCtx.fillStyle = 'red';
         canvasCtx.fill();
-      }
+      });
     }
 
     // onResults callback: called each time a pose is estimated
@@ -97,7 +98,7 @@
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
       if (results.poseLandmarks) {
-        // Draw landmarks with our custom function (smaller red dots)
+        // Draw only body landmarks (without face)
         drawLandmarks(results.poseLandmarks);
 
         // --- LEFT SIDE ---
@@ -113,7 +114,7 @@
           let leftFlexAngle = calculateAngle(horizontalRefL, leftShoulder, leftElbow);
           leftFlexAngle = 90 - leftFlexAngle; // 0 when arm is down; increases as arm raises forward
 
-          // For abduction: compute arctan(|elbow.x - shoulder.x| / |elbow.y - shoulder.y|).
+          // For abduction: use an arctan of the horizontal difference over vertical difference.
           const diffXLeft = Math.abs(leftElbow.x - leftShoulder.x);
           const diffYLeft = Math.abs(leftElbow.y - leftShoulder.y);
           let leftAbdAngle = Math.atan(diffXLeft / diffYLeft) * (180 / Math.PI);
@@ -137,7 +138,7 @@
           let rightFlexAngle = calculateAngle(horizontalRefR, rightShoulder, rightElbow);
           rightFlexAngle = 90 - rightFlexAngle; // 0 when arm is down
 
-          // For right abduction: similar arctan formula.
+          // For right abduction: similar arctan calculation.
           const diffXRight = Math.abs(rightElbow.x - rightShoulder.x);
           const diffYRight = Math.abs(rightElbow.y - rightShoulder.y);
           let rightAbdAngle = Math.atan(diffXRight / diffYRight) * (180 / Math.PI);
