@@ -3,13 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Upper Body Mobility Tracker</title>
+  <title>Shoulder Mobility Tracker</title>
   <style>
     body { 
       font-family: Arial, sans-serif; 
       background: #f4f4f4; 
       text-align: center; 
       padding: 20px; 
+      position: relative;
     }
     #videoElement { 
       width: 640px; 
@@ -18,6 +19,14 @@
       border-radius: 8px; 
       background: #000; 
     }
+    /* Canvas overlay positioned on top of the video */
+    #overlay {
+      position: absolute; 
+      top: 0; 
+      left: 50%; 
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
     .angleDisplay { 
       font-size: 20px; 
       margin-top: 10px; 
@@ -25,8 +34,9 @@
   </style>
 </head>
 <body>
-  <h1>Shoulder Range-of-Motion Tracker</h1>
+  <h1>Shoulder Mobility Tracker</h1>
   <video id="videoElement" autoplay playsinline></video>
+  <canvas id="overlay"></canvas>
   <div id="shoulderFlex" class="angleDisplay">Shoulder Flexion: --°</div>
   <div id="shoulderAbd" class="angleDisplay">Shoulder Abduction: --°</div>
   <div id="shoulderRot" class="angleDisplay">Shoulder Rotation (approx.): --</div>
@@ -37,7 +47,9 @@
   
   <script>
     const video = document.getElementById('videoElement');
-    
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+
     // Start the webcam stream
     async function startWebcam() {
       try {
@@ -49,7 +61,14 @@
       }
     }
     
-    // Function to calculate angle (in degrees) between two vectors with B as the vertex
+    // Set the canvas size to match the video once loaded
+    video.addEventListener('loadeddata', () => {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      loadAndDetectPose();
+    });
+    
+    // Utility function to calculate angle between three points (in degrees)
     function calculateAngle(A, B, C) {
       const AB = { x: A.x - B.x, y: A.y - B.y };
       const CB = { x: C.x - B.x, y: C.y - B.y };
@@ -60,27 +79,50 @@
       return angleRad * (180 / Math.PI);
     }
     
+    // Draw detected keypoints on the canvas for debugging
+    function drawKeypoints(keypoints, minConfidence = 0.4) {
+      keypoints.forEach(keypoint => {
+        if (keypoint.score >= minConfidence) {
+          const { x, y } = keypoint.position;
+          ctx.beginPath();
+          ctx.arc(x, y, 5, 0, 2 * Math.PI);
+          ctx.fillStyle = 'red';
+          ctx.fill();
+        }
+      });
+    }
+    
+    // Load the PoseNet model and start the pose detection loop
     async function loadAndDetectPose() {
       const net = await posenet.load();
       
       async function detectPose() {
+        // Clear the overlay canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Estimate the pose from the current video frame
         const pose = await net.estimateSinglePose(video, { flipHorizontal: false });
+        
+        // Draw keypoints for visualization
+        drawKeypoints(pose.keypoints, 0.4);
+        
+        // Extract keypoints for left shoulder, elbow, and wrist
         const leftShoulder = pose.keypoints.find(k => k.part === 'leftShoulder');
         const leftElbow = pose.keypoints.find(k => k.part === 'leftElbow');
         const leftWrist = pose.keypoints.find(k => k.part === 'leftWrist');
         
+        // If keypoints are detected with sufficient confidence, calculate angles
         if (leftShoulder && leftElbow && leftWrist &&
-            leftShoulder.score > 0.5 && leftElbow.score > 0.5 && leftWrist.score > 0.5) {
-          // Shoulder Flexion: Compare shoulder-to-elbow vector with a vertical reference
+            leftShoulder.score > 0.4 && leftElbow.score > 0.4 && leftWrist.score > 0.4) {
+          // Shoulder Flexion: Angle between vertical reference and the shoulder-to-elbow vector
           const verticalRef = { x: leftShoulder.position.x, y: leftShoulder.position.y + 100 };
           const shoulderFlex = calculateAngle(verticalRef, leftShoulder.position, leftElbow.position);
           
-          // Shoulder Abduction: Compare shoulder-to-elbow vector with a horizontal reference
+          // Shoulder Abduction: Angle between horizontal reference and the shoulder-to-elbow vector
           const horizontalRef = { x: leftShoulder.position.x + 100, y: leftShoulder.position.y };
           const shoulderAbd = calculateAngle(horizontalRef, leftShoulder.position, leftElbow.position);
           
-          // Shoulder Rotation (heuristic): Difference in x positions between wrist and elbow relative to shoulder.
-          // (Positive value may indicate external rotation, negative for internal rotation—this is a rough measure.)
+          // Shoulder Rotation (approximation): Horizontal difference between wrist and elbow
           const shoulderRot = leftWrist.position.x - leftElbow.position.x;
           
           document.getElementById('shoulderFlex').innerText = 'Shoulder Flexion: ' + shoulderFlex.toFixed(1) + '°';
@@ -91,15 +133,13 @@
           document.getElementById('shoulderAbd').innerText = 'Detecting...';
           document.getElementById('shoulderRot').innerText = 'Detecting...';
         }
+        
         requestAnimationFrame(detectPose);
       }
       detectPose();
     }
     
-    video.addEventListener('loadeddata', () => {
-      loadAndDetectPose();
-    });
-    
+    // Start the webcam when the page loads
     startWebcam();
   </script>
 </body>
